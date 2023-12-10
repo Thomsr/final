@@ -14,8 +14,7 @@
 #include <mutex>
 
 #define fParticles 50
-#define trailLength 10
-#define maxFireworks 20
+#define maxFireworks 7
 #define maxBuildings 50
 
 float g_posX = 0.0, g_posY = 300.0, g_posZ = 250.0;
@@ -47,8 +46,9 @@ struct fireworkInfo
   float time;
   float x, y, z;
   int active;
+  int light;
   fMode mode;
-  explodeInfo particles[fParticles * fParticles][trailLength];
+  explodeInfo particles[fParticles * fParticles];
 };
 
 struct buildingInfo
@@ -73,30 +73,36 @@ float lerp(float a, float b, float t)
 
 int soundThreadExplode(void *data)
 {
+  (void)data;
   Mix_Chunk *sound = Mix_LoadWAV("firework.wav");
   if (sound == nullptr)
   {
-    printf("Error: Unable to load sound file - %s\n", Mix_GetError());
+    std::cerr << "Error: Unable to load sound file - "
+              << Mix_GetError() << std::endl;
   }
   Mix_PlayChannel(-1, sound, 0);
   if (Mix_Playing(-1) == -1)
   {
-    printf("Error: Unable to play sound - %s\n", Mix_GetError());
+    std::cerr << "Error: Unable to load sound file - "
+              << Mix_GetError() << std::endl;
   }
   return 0;
 }
 
 int soundThreadFire(void *data)
 {
+  (void)data;
   Mix_Chunk *sound = Mix_LoadWAV("fireworkfire.wav");
   if (sound == nullptr)
   {
-    printf("Error: Unable to load sound file - %s\n", Mix_GetError());
+    std::cerr << "Error: Unable to load sound file - "
+              << Mix_GetError() << std::endl;
   }
   Mix_PlayChannel(-1, sound, 0);
   if (Mix_Playing(-1) == -1)
   {
-    printf("Error: Unable to play sound - %s\n", Mix_GetError());
+    std::cerr << "Error: Unable to load sound file - "
+              << Mix_GetError() << std::endl;
   }
   return 0;
 }
@@ -107,7 +113,7 @@ void playExplodeSound()
   SDL_Thread *thread = SDL_CreateThread(soundThreadExplode, "SoundThreadExplode", NULL);
   if (thread == NULL)
   {
-    printf("Error: Unable to create sound thread: %s\n", SDL_GetError());
+    std::cerr << "Error: Unable to create sound thread: " << SDL_GetError() << std::endl;
   }
   SDL_UnlockMutex(mutex);
 }
@@ -118,9 +124,21 @@ void playFireSound()
   SDL_Thread *thread = SDL_CreateThread(soundThreadFire, "SoundThreadFire", NULL);
   if (thread == NULL)
   {
-    printf("Error: Unable to create sound thread: %s\n", SDL_GetError());
+    std::cerr << "Error: Unable to create sound thread: " << SDL_GetError() << std::endl;
   }
   SDL_UnlockMutex(mutex);
+}
+
+void activateLight(float red, float green, float blue, fireworkInfo *firework)
+{
+  GLfloat lightColor[] = {red, green, blue, 0.0f};
+  GLfloat lightPos[] = {firework->x, firework->y, firework->z, 1.0};
+  glLightfv(GL_LIGHT0 + firework->light, GL_SPECULAR, lightColor);
+  glLightfv(GL_LIGHT0 + firework->light, GL_DIFFUSE, lightColor);
+  glLightfv(GL_LIGHT0 + firework->light, GL_POSITION, lightPos);
+
+  glLightf(GL_LIGHT0 + firework->light, GL_CONSTANT_ATTENUATION, 1.0);
+  glEnable(GL_LIGHT0 + firework->light);
 }
 
 void explode(fireworkInfo *firework)
@@ -137,7 +155,7 @@ void explode(fireworkInfo *firework)
   {
     for (double phi = 0; phi < M_PI; phi += M_PI / fParticles)
     {
-      explodeInfo *particle = &firework->particles[index][0];
+      explodeInfo *particle = &firework->particles[index];
       particle->width = 1;
       particle->x = r * sin(phi) * cos(theta) + firework->x;
       particle->y = r * cos(phi) + firework->y;
@@ -167,17 +185,17 @@ void explode(fireworkInfo *firework)
     }
   }
 
-  for (int i = 1; i < trailLength; i++)
-  {
-    firework->particles[index][i].width = 0;
-  }
+  if (firework->mode == GRADIENT)
+    activateLight(.5, .5, 1, firework);
+  else
+    activateLight(red, green, blue, firework);
 
   glutGet(GLUT_ELAPSED_TIME);
 }
 
 void explode2(fireworkInfo *firework)
 {
-  float v_y = 50;
+  float v_y = 30;
 
   float red = (rand() / float(RAND_MAX));
   float green = (rand() / float(RAND_MAX));
@@ -185,7 +203,7 @@ void explode2(fireworkInfo *firework)
 
   for (int i = 0; i < fParticles; i++)
   {
-    explodeInfo *particle = &firework->particles[i][0];
+    explodeInfo *particle = &firework->particles[i];
     particle->width = 2;
     particle->x = firework->x;
     particle->y = firework->y + (rand() / float(RAND_MAX)) * 10;
@@ -205,6 +223,8 @@ void explode2(fireworkInfo *firework)
     particle->a = 1;
   }
 
+  activateLight(red, green, blue, firework);
+
   glutGet(GLUT_ELAPSED_TIME);
 }
 
@@ -216,7 +236,7 @@ void explodeT(fireworkInfo *firework)
 
   for (int i = 0; i < 1000; i++)
   {
-    explodeInfo *particle = &firework->particles[i][0];
+    explodeInfo *particle = &firework->particles[i];
     particle->width = 2;
     particle->x = firework->x;
     particle->y = firework->y;
@@ -235,6 +255,8 @@ void explodeT(fireworkInfo *firework)
     particle->b = blue;
     particle->a = 1;
   }
+
+  activateLight(red, green, blue, firework);
 }
 
 void fireFirework(fMode mode)
@@ -270,6 +292,7 @@ void drawOneParticle()
   glVertex3f(-0.5, 0.0, 0.5); // A again
   // triangle 4 (bottom)
   glVertex3f(0.0, 0.0, -0.5); // B again
+
   glEnd();
 }
 
@@ -292,15 +315,14 @@ void drawCylinder()
 
 void drawParticles()
 {
-  int i = 0;
   for (auto f : fireworks)
   {
     for (int index = 0; index < fParticles * fParticles; index++)
     {
       glPushMatrix();
-      glTranslatef(f.particles[index][i].x, f.particles[index][i].y, f.particles[index][i].z);
-      glScalef(f.particles[index][i].width, f.particles[index][i].width, f.particles[index][i].width);
-      glColor4f(f.particles[index][i].r, f.particles[index][i].g, f.particles[index][i].b, f.particles[index][i].a);
+      glTranslatef(f.particles[index].x, f.particles[index].y, f.particles[index].z);
+      glScalef(f.particles[index].width, f.particles[index].width, f.particles[index].width);
+      glColor4f(f.particles[index].r, f.particles[index].g, f.particles[index].b, f.particles[index].a);
       drawOneParticle();
       glPopMatrix();
     }
@@ -330,31 +352,37 @@ void drawFirework()
 void drawBuilding(int height)
 {
   glColor3f(0.5, 0.5, 0.5);
+  // Back
+  glNormal3f(0, 0, -1);
   glBegin(GL_QUADS);
   glVertex3f(-50.0, 0, -50.0);
   glVertex3f(50.0, 0, -50.0);
   glVertex3f(50.0, height, -50.0);
   glVertex3f(-50.0, height, -50.0);
 
-  glColor3f(0.2, 0.2, 0.2);
+  // Front
+  glNormal3f(0, 0, 1);
   glVertex3f(-50.0, 0, 50.0);
   glVertex3f(50.0, 0, 50.0);
   glVertex3f(50.0, height, 50.0);
   glVertex3f(-50.0, height, 50.0);
 
-  glColor3f(0.6, 0.6, 0.6);
+  // Right
+  glNormal3f(-1, 0, 0);
   glVertex3f(-50.0, 0, -50.0);
   glVertex3f(-50.0, height, -50.0);
   glVertex3f(-50.0, height, 50.0);
   glVertex3f(-50.0, 0, 50.0);
 
-  glColor3f(0.4, 0.4, 0.4);
+  // Left
+  glNormal3f(1, 0, 0);
   glVertex3f(50.0, 0, -50.0);
   glVertex3f(50.0, height, -50.0);
   glVertex3f(50.0, height, 50.0);
   glVertex3f(50.0, 0, 50.0);
 
-  glColor3f(0.5, 0.5, 0.5);
+  // Top
+  glNormal3f(0, 1, 0);
   glVertex3f(50.0, height, -50.0);
   glVertex3f(-50.0, height, -50.0);
   glVertex3f(-50.0, height, 50.0);
@@ -376,6 +404,7 @@ void drawBuildings()
 
 void keyboard(unsigned char key, int x, int y)
 {
+  (void)x, (void)y;
   switch (key)
   {
   case 'a': // up
@@ -398,7 +427,7 @@ void keyboard(unsigned char key, int x, int y)
     g_posX = g_posX - sin(g_orientation / 180.0 * M_PI);
     g_posZ = g_posZ + cos(g_orientation / 180.0 * M_PI);
     break;
-  case 's':
+  case 'f':
     fireFirework(STANDARD);
     break;
   case 'g':
@@ -427,11 +456,12 @@ void update()
   glClear(GL_COLOR_BUFFER_BIT);
   glClear(GL_DEPTH_BUFFER_BIT);
 
-  glColor3f(.45, .45, .45);
+  glColor3f(.65, .65, .65);
+  glNormal3f(0, 1, 0);
   glBegin(GL_QUADS);
-  glVertex3f(-5000, 0, 5000);
-  glVertex3f(-5000, 0, -5000);
   glVertex3f(5000, 0, -5000);
+  glVertex3f(-5000, 0, -5000);
+  glVertex3f(-5000, 0, 5000);
   glVertex3f(5000, 0, 5000);
   glEnd();
 
@@ -459,54 +489,42 @@ void removeParticles(fireworkInfo *firework)
 {
   for (int i = 0; i < fParticles * fParticles; i++)
   {
-    firework->particles[i][0].width = 0;
+    firework->particles[i].width = 0;
   }
 }
 
 void explodeTimer(fireworkInfo *firework, float time)
 {
-  // if (firework->mode == TRAIL)
-  // {
-  //   for (int i = 0; i < trailLength - 1; i++)
-  //   {
-  //     for (int j = 0; j < fParticles * fParticles; j++)
-  //     {
-  //       firework->particles[j][trailLength - i] = firework->particles[j][trailLength - i - 1];
-  //       firework->particles[j][trailLength - i].width -= 1 / trailLength;
-  //     }
-  //   }
-  // }
-
   for (int i = 0; i < fParticles * fParticles; i++)
   {
-    firework->particles[i][0].x += firework->particles[i][0].v_x * time;
-    firework->particles[i][0].y += firework->particles[i][0].v_y * time;
-    firework->particles[i][0].z += firework->particles[i][0].v_z * time;
+    firework->particles[i].x += firework->particles[i].v_x * time;
+    firework->particles[i].y += firework->particles[i].v_y * time;
+    firework->particles[i].z += firework->particles[i].v_z * time;
 
-    firework->particles[i][0].x += firework->particles[i][0].v_x * time;
-    firework->particles[i][0].y += firework->particles[i][0].v_y * time;
-    firework->particles[i][0].z += firework->particles[i][0].v_z * time;
+    firework->particles[i].x += firework->particles[i].v_x * time;
+    firework->particles[i].y += firework->particles[i].v_y * time;
+    firework->particles[i].z += firework->particles[i].v_z * time;
 
-    firework->particles[i][0].width -= firework->particles[i][0].width <= 0 ? 0 : 0.2 * time;
+    firework->particles[i].width -= firework->particles[i].width <= 0 ? 0 : 0.2 * time;
 
-    if (firework->particles[i][0].y != 0)
+    if (firework->particles[i].y != 0)
     {
-      firework->particles[i][0].v_y -= 9.8 * time;
+      firework->particles[i].v_y -= 9.8 * time;
     }
-    if (firework->particles[i][0].y < 0)
+    if (firework->particles[i].y < 0)
     {
-      firework->particles[i][0].y = 0;
-      firework->particles[i][0].a_y = 0;
-      firework->particles[i][0].a_x = 0;
-      firework->particles[i][0].a_z = 0;
-      firework->particles[i][0].v_y = 0;
-      firework->particles[i][0].v_x = 0;
-      firework->particles[i][0].v_z = 0;
+      firework->particles[i].y = 0;
+      firework->particles[i].a_y = 0;
+      firework->particles[i].a_x = 0;
+      firework->particles[i].a_z = 0;
+      firework->particles[i].v_y = 0;
+      firework->particles[i].v_x = 0;
+      firework->particles[i].v_z = 0;
     }
   }
 
   firework->time += time;
-  if (firework->time > 10)
+  if (firework->time > 5)
     firework->active = 0;
 }
 
@@ -539,6 +557,7 @@ void fireworkTimer(fireworkInfo *firework, float time)
 
 void timer(int value)
 {
+  (void)value;
   static int lastTime;
   int thisTime;
   float time;
@@ -558,6 +577,7 @@ void timer(int value)
       break;
     default:
       removeParticles(&fireworks[i]);
+      glDisable(GL_LIGHT0 + fireworks[i].light);
       break;
     }
   }
@@ -598,6 +618,14 @@ void initT()
   }
 }
 
+void initFireworks()
+{
+  for (int i = 0; i < maxFireworks; i++)
+  {
+    fireworks[i].light = i + 1;
+  }
+}
+
 int main(int argc, char *argv[])
 {
   if (SDL_Init(SDL_INIT_AUDIO) < 0)
@@ -613,8 +641,14 @@ int main(int argc, char *argv[])
   {
     printf("Error: mix_init\n");
   }
+
+  float bgcolor[4] = {0.0, 0.7, 0.5, 1.0};
+  glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, bgcolor);
+
   initBuildings();
   initT();
+  initFireworks();
+
   srand(time(NULL));
   glutInit(&argc, argv);
   glutInitWindowSize(g_width, g_height);
@@ -624,6 +658,14 @@ int main(int argc, char *argv[])
   glutInitDisplayMode(GLUT_RGBA | GLUT_ALPHA | GLUT_DOUBLE | GLUT_DEPTH);
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_BLEND);
+  glEnable(GL_LIGHTING);
+  glEnable(GL_COLOR_MATERIAL);
+  float ambientLevel[] = {.25, .25, .25, 1};
+  glLightModelfv(GL_LIGHT_MODEL_AMBIENT, ambientLevel);
+  GLfloat lightColor0[] = {.5, .5, .5, 0.0f};
+  glLightfv(GL_LIGHT0, GL_DIFFUSE, lightColor0);
+  glEnable(GL_LIGHT0);
+
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glutReshapeFunc(&reshape);
   glutDisplayFunc(&update);
